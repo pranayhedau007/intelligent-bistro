@@ -1,0 +1,134 @@
+{
+  "title": "Intelligent Bistro",
+  "uid": "bistro-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "🏆 Best Selling Items",
+      "type": "barchart",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "topk(10, items_added_total)",
+          "legendFormat": "{{item_name}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Owner view — which dishes are being ordered most via AI chat"
+    },
+    {
+      "id": 2,
+      "title": "🛒 Cart Actions",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(items_added_total)",
+          "legendFormat": "Items Added",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "background", "graphMode": "area" }
+    },
+    {
+      "id": 3,
+      "title": "❌ Items Removed",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "sum(items_removed_total)",
+          "legendFormat": "Items Removed",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "💬 Total AI Chat Requests",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 4, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "chat_requests_total",
+          "legendFormat": "Chat Requests",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 5,
+      "title": "⚠️ Chat Errors",
+      "type": "stat",
+      "gridPos": { "x": 18, "y": 4, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "expr": "chat_errors_total",
+          "legendFormat": "Errors",
+          "refId": "A"
+        }
+      ],
+      "options": { "colorMode": "background", "thresholds": { "steps": [{ "color": "green", "value": 0 }, { "color": "red", "value": 1 }] } }
+    },
+    {
+      "id": 6,
+      "title": "⚡ API Request Rate (req/min)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rate(http_requests_total[1m]) * 60",
+          "legendFormat": "{{method}} {{route}} {{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Dev view — requests per minute by route"
+    },
+    {
+      "id": 7,
+      "title": "🕐 Chat Latency p95 (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "chat_duration_ms{quantile=\"0.95\"}",
+          "legendFormat": "p95 latency",
+          "refId": "A"
+        }
+      ],
+      "description": "Dev view — Claude response time at 95th percentile"
+    },
+    {
+      "id": 8,
+      "title": "🔍 RAG Retrieval Latency p95 (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "rag_retrieval_duration_ms{quantile=\"0.95\"}",
+          "legendFormat": "p95 RAG latency",
+          "refId": "A"
+        }
+      ],
+      "description": "Dev view — Qdrant + BM25 retrieval time"
+    },
+    {
+      "id": 9,
+      "title": "📊 HTTP Status Breakdown",
+      "type": "piechart",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "http_requests_total",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Dev view — 2xx vs 4xx vs 5xx breakdown"
+    }
+  ]
+}
