@@ -8,8 +8,9 @@ import { sendChatMessage, fetchMenu, ChatMessage, CartAction } from '../../lib/a
 import { useCartStore } from '../../store/useCartStore';
 import UpsellBanner from '../../components/UpsellBanner';
 import OrderSummaryModal from '../../components/OrderSummaryModal';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import * as Haptics from 'expo-haptics';
+import * as Speech from 'expo-speech';
+import { useSpeechInput } from '../../hooks/useSpeechInput';
 
 const SESSION_ID = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
   const r = Math.random() * 16 | 0;
@@ -23,7 +24,7 @@ export default function ChatScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isRecording, setIsRecording] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [orderModal, setOrderModal] = useState<{
     visible: boolean;
     message: string;
@@ -31,12 +32,15 @@ export default function ChatScreen() {
   }>({ visible: false, message: '', estimatedPrepTime: 0 });
 
   const listRef = useRef<FlatList>(null);
-  const pendingTranscript = useRef('');
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
 
   const { data: menuData } = useQuery({ queryKey: ['menu'], queryFn: fetchMenu });
   const { items, addItem, removeItem, setQuantity, clearCart } = useCartStore();
+
+  const { isRecording, interimText, isSupported, start, stop } = useSpeechInput(
+    (transcript) => { setInput(''); sendMessage(transcript); }
+  );
 
   // Pulse animation while recording
   useEffect(() => {
@@ -53,40 +57,6 @@ export default function ChatScreen() {
       pulseAnim.setValue(1);
     }
   }, [isRecording]);
-
-  // Speech recognition events
-  useSpeechRecognitionEvent('start', () => {
-    setIsRecording(true);
-    setInput('');
-  });
-
-  useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results[0]?.transcript ?? '';
-    if (event.isFinal) {
-      pendingTranscript.current = transcript;
-    } else {
-      setInput(transcript);
-    }
-  });
-
-  useSpeechRecognitionEvent('end', () => {
-    setIsRecording(false);
-    const transcript = pendingTranscript.current.trim();
-    pendingTranscript.current = '';
-    if (transcript) {
-      sendMessage(transcript);
-    } else {
-      setInput('');
-    }
-  });
-
-  useSpeechRecognitionEvent('error', (event) => {
-    setIsRecording(false);
-    pendingTranscript.current = '';
-    if (event.error !== 'aborted' && event.error !== 'no-speech') {
-      setInput('');
-    }
-  });
 
   const applyActions = (actions: CartAction[]) => {
     actions.forEach((action) => {
@@ -105,6 +75,17 @@ export default function ChatScreen() {
     });
   };
 
+  const speakReply = (text: string) => {
+    if (isMuted) return;
+    Speech.stop();
+    const clean = text
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .replace(/#{1,6}\s/g, '');
+    Speech.speak(clean, { language: 'en-US', rate: 0.95, pitch: 1.0 });
+  };
+
   const sendMessage = async (text: string) => {
     if (!text.trim() || loading) return;
     const userMsg: ChatMessage = { role: 'user', content: text.trim() };
@@ -119,6 +100,7 @@ export default function ChatScreen() {
       applyActions(response.actions);
       setSuggestions(response.suggestions ?? []);
       setMessages([...newMessages, { role: 'assistant', content: response.reply }]);
+      speakReply(response.reply);
     } catch {
       setMessages([...newMessages, { role: 'assistant', content: "Sorry, could not connect to the server!" }]);
     } finally {
@@ -131,20 +113,14 @@ export default function ChatScreen() {
 
   const startVoiceInput = async () => {
     if (loading) return;
-    const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!granted) return;
+    Speech.stop();
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    pendingTranscript.current = '';
-    ExpoSpeechRecognitionModule.start({
-      lang: 'en-US',
-      interimResults: true,
-      addsPunctuation: true,
-    });
+    await start();
   };
 
   const stopVoiceInput = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    ExpoSpeechRecognitionModule.stop();
+    stop();
   };
 
   const handleOrderConfirmed = () => {
@@ -157,7 +133,15 @@ export default function ChatScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
-      <Text style={styles.header}>AI Assistant</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.header}>AI Assistant</Text>
+        <TouchableOpacity
+          style={[styles.muteBtn, isMuted && styles.muteBtnActive]}
+          onPress={() => { Speech.stop(); setIsMuted(m => !m); }}
+        >
+          <Text style={styles.muteBtnText}>{isMuted ? '🔇' : '🔊'}</Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         ref={listRef}
         data={messages}
@@ -186,18 +170,18 @@ export default function ChatScreen() {
       <View style={styles.inputRow}>
         <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
           <TouchableOpacity
-            style={[styles.micBtn, isRecording && styles.micBtnActive]}
+            style={[styles.micBtn, isRecording && styles.micBtnActive, !isSupported && styles.micBtnDisabled]}
             onPress={isRecording ? stopVoiceInput : startVoiceInput}
-            disabled={loading}
+            disabled={loading || !isSupported}
           >
             <Text style={styles.micBtnText}>{isRecording ? '⏹' : '🎤'}</Text>
           </TouchableOpacity>
         </Animated.View>
         <TextInput
           style={[styles.input, isRecording && styles.inputRecording]}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Type or tap 🎤 to speak your order..."
+          value={isRecording ? interimText : input}
+          onChangeText={isRecording ? undefined : setInput}
+          placeholder={isSupported ? 'Type or tap 🎤 to speak your order...' : 'Type your order here...'}
           placeholderTextColor="#444"
           onSubmitEditing={send}
           returnKeyType="send"
@@ -222,7 +206,11 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0a0a' },
-  header: { color: '#f59e0b', fontSize: 22, fontWeight: '700', padding: 16, paddingBottom: 4 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 4 },
+  header: { color: '#f59e0b', fontSize: 22, fontWeight: '700' },
+  muteBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#141414', borderWidth: 1, borderColor: '#333', justifyContent: 'center', alignItems: 'center' },
+  muteBtnActive: { borderColor: '#555', backgroundColor: '#1a1a1a' },
+  muteBtnText: { fontSize: 16 },
   bubble: { maxWidth: '80%', borderRadius: 16, padding: 12 },
   userBubble: { alignSelf: 'flex-end', backgroundColor: '#f59e0b' },
   aiBubble: { alignSelf: 'flex-start', backgroundColor: '#141414', borderWidth: 1, borderColor: '#222' },
@@ -237,6 +225,7 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', padding: 12, gap: 8, borderTopWidth: 1, borderTopColor: '#1a1a1a', alignItems: 'flex-end' },
   micBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#141414', borderWidth: 1, borderColor: '#333', justifyContent: 'center', alignItems: 'center' },
   micBtnActive: { backgroundColor: '#2d0a0a', borderColor: '#ef4444' },
+  micBtnDisabled: { opacity: 0.3 },
   micBtnText: { fontSize: 18 },
   input: { flex: 1, backgroundColor: '#141414', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: '#222', maxHeight: 100 },
   inputRecording: { borderColor: '#ef4444', color: '#aaa' },
